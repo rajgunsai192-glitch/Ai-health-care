@@ -27,7 +27,6 @@
   <style>
     body { font-family: 'Noto Sans Gujarati', system-ui, sans-serif; }
 
-    /* Lippan (Kutch mirror-work) inspired border: small mirrors on indigo clay */
     .lippan {
       background-color: #232F6B;
       background-image:
@@ -47,10 +46,6 @@
       0%, 80%, 100% { transform: translateY(0); opacity: .4; }
       40% { transform: translateY(-5px); opacity: 1; }
     }
-    @media (prefers-reduced-motion: reduce) {
-      .dot { animation: none; opacity: .7; }
-      * { scroll-behavior: auto !important; }
-    }
 
     .mic-live { background: #B3392F !important; color: #fff !important; border-color: #B3392F !important; animation: pulse-ring 1.4s infinite; }
     @keyframes pulse-ring {
@@ -58,7 +53,6 @@
       70% { box-shadow: 0 0 0 12px rgba(179, 57, 47, 0); }
       100% { box-shadow: 0 0 0 0 rgba(179, 57, 47, 0); }
     }
-    @media (prefers-reduced-motion: reduce) { .mic-live { animation: none; } }
 
     #chat::-webkit-scrollbar { width: 8px; }
     #chat::-webkit-scrollbar-thumb { background: #c6cbd9; border-radius: 8px; }
@@ -84,8 +78,8 @@
       <div class="lippan h-[10px] w-full" aria-hidden="true"></div>
     </header>
 
-    <!-- API key bar (shown only when no key is set) -->
-    <section id="keyBar" class="hidden border-b border-haldi/40 bg-amber-50 px-4 py-3 text-sm sm:px-6">
+    <!-- API key bar -->
+    <section id="keyBar" class="border-b border-haldi/40 bg-amber-50 px-4 py-3 text-sm sm:px-6">
       <label for="keyInput" class="mb-1 block font-medium text-slate-700">OpenRouter API કી દાખલ કરો</label>
       <div class="flex gap-2">
         <input id="keyInput" type="password" autocomplete="off" placeholder="sk-or-v1-..."
@@ -146,403 +140,199 @@
   </main>
 
   <script>
-    /* ====================== CONFIG ====================== */
-    // GitHub પર મૂકતા પહેલાં આ ખાલી જ રાખો! કી પેજમાં દાખલ કરો (ફક્ત તમારા બ્રાઉઝરમાં સચવાય છે).
-    // Keep this EMPTY in a public repo – anything written here is visible to everyone.
-    const OPENROUTER_API_KEY = "";
+    // DOM Elements
+    const chat = document.getElementById('chat');
+    const chipsContainer = document.getElementById('chips');
+    const form = document.getElementById('form');
+    const input = document.getElementById('input');
+    const micBtn = document.getElementById('mic');
+    const voiceStatus = document.getElementById('voiceStatus');
+    const keyBar = document.getElementById('keyBar');
+    const keyInput = document.getElementById('keyInput');
+    const keySave = document.getElementById('keySave');
+    const speakToggle = document.getElementById('speakToggle');
+    const autoSendToggle = document.getElementById('autoSendToggle');
+    const stopSpeakBtn = document.getElementById('stopSpeak');
 
-    // Tried in order. Free model IDs on OpenRouter change often – check openrouter.ai/models
-    const MODELS = [
-      "meta-llama/llama-3-8b-instruct:free",
-      "meta-llama/llama-3.3-70b-instruct:free",
-      "openrouter/free"
-    ];
+    let apiKey = localStorage.getItem('openrouter_api_key') || '';
+    let synthesis = window.speechSynthesis;
+    let currentUtterance = null;
+    let recognition = null;
 
-    const DISCLAIMER_MARKER = "તબીબી અસ્વીકરણ";
-    const DISCLAIMER =
-      "⚠️ **તબીબી અસ્વીકરણ:** આ માહિતી ફક્ત પ્રાથમિક ઘરેલુ સલાહ માટે છે. તે લાયક ડૉક્ટરની તપાસ, નિદાન કે સારવારનો વિકલ્પ નથી. " +
-      "ગંભીર લક્ષણો હોય તો તરત નજીકના ડૉક્ટર કે હોસ્પિટલનો સંપર્ક કરો અથવા 108 પર ફોન કરો. " +
-      "કોઈ પણ દવા લેતા પહેલાં લાયક ડૉક્ટરની સલાહ અવશ્ય લો.";
+    const SYSTEM_PROMPT = `તમે માધાપર (કચ્છ) ના ગ્રામીણ વિસ્તાર માટે બનાવેલા એક અત્યંત બુદ્ધિશાળી અને અનુભવી AI મેડિકલ આસિસ્ટન્ટ છો. તમારી પાસે સામાન્ય બુદ્ધિ (Common Sense), એલોપેથી, આયુર્વેદ, અને ઘરગથ્થુ ઉપચારોનું ઊંડું ચિકિત્સા જ્ઞાન છે. જ્યારે દર્દી ગુજરાતીમાં લક્ષણો જણાવે ત્યારે પહેલા સાંત્વના આપો. ત્યારબાદ મુદ્દાસર (Bullet points) જવાબ આપો: સંભવિત બીમારીનું કારણ -> એલોપેથી પ્રાથમિક સારવાર (દા.ત. શરદી-તાવ માટે Paracetamol 500mg) -> આયુર્વેદિક/ઘરગથ્થુ ઉપચાર (દા.ત. ઉધરસ માટે હળદર-મીઠાના કોગળા) -> શું સાવચેતી રાખવી. ટોન એકદમ દયાળુ રાખવો. દરેક જવાબના અંતમાં કડક શબ્દોમાં આ ચેતવણી લખવી: 'આ કોઈ અંતિમ ડૉક્ટરની સલાહ નથી. ગંભીર લક્ષણો હોય તો વિલંબ કર્યા વગર ભુજ સિવિલ હોસ્પિટલનો સંપર્ક કરવો.'`;
 
-    const SYSTEM_PROMPT = `
-You are "ડૉક્ટર સાહેબ", a kind, caring and experienced village doctor from Madhapar, Bhuj, Kutch (Gujarat, India).
-You speak warmly, like an elder who treats patients as family, in simple everyday Gujarati that rural people understand.
+    const QUICK_CHIPS = ['તાવ આવે છે', 'શરદી અને ઉધરસ', 'પેટમાં દુખાવો', 'માથું દુખે છે'];
 
-RULES:
-1. Always reply ONLY in Gujarati script (ગુજરાતી). Avoid difficult medical jargon; if you must use a medical term, explain it simply.
-2. Begin with one short, caring sentence. If the symptoms are unclear, ask 1-2 simple follow-up questions (how many days, age, fever, any existing illness, pregnancy).
-3. Give PRIMARY, SAFE home care and remedies only, for example: rest, warm water, ORS / ઓઆરએસ, tulsi-ginger-honey tea (no honey for babies under 1 year), turmeric milk, steam inhalation, salt-water gargle, light food like khichdi and curd, hygiene and hydration. Keep it to short bullet points.
-4. Do NOT prescribe prescription medicines, antibiotics, injections or exact dosages. For fever or pain you may only say that a doctor/pharmacist should be asked about paracetamol.
-5. Be extra careful with infants, small children, pregnant women, elderly people and people with long-term illness: advise them to see a doctor soon.
-6. RED FLAGS - if there is chest pain, difficulty breathing, severe bleeding, fainting, seizures, stroke signs (face drooping, weakness, slurred speech), very high fever lasting more than 3 days, blood in vomit or stool, severe dehydration, suspected poisoning or snake bite, say clearly at the very start: "આ ગંભીર હોઈ શકે છે — તરત 108 પર ફોન કરો અથવા નજીકની હોસ્પિટલ (ભુજ) જાઓ." Do not delay with home remedies.
-7. If the person talks about harming themselves, respond with compassion and urge them to speak to a trusted person and a doctor immediately.
-8. Never claim to give a final diagnosis. Say "શક્યતા છે" (it is possible), not "તમને ... રોગ છે".
-9. If the question is not about health, politely say you can only help with health matters.
-10. Keep answers short and easy to read (under about 180 words).
-11. STRICT: END EVERY single reply with exactly this disclaimer on a new line, word for word:
-${DISCLAIMER}
-`.trim();
-
-    const QUICK = ["તાવ આવે છે", "શરદી અને ઉધરસ", "પેટમાં દુખાવો", "માથાનો દુખાવો", "ઝાડા-ઉલટી", "ગળામાં દુખાવો"];
-
-    /* ====================== STATE & DOM ====================== */
-    const $ = (id) => document.getElementById(id);
-    const chat = $("chat"), form = $("form"), input = $("input"), sendBtn = $("send");
-    const keyBar = $("keyBar"), keyInput = $("keyInput"), keySave = $("keySave");
-
-    let history = [];      // {role, content}
-    let busy = false;
-
-    const store = {
-      get() { try { return localStorage.getItem("or_key") || ""; } catch { return ""; } },
-      set(v) { try { localStorage.setItem("or_key", v); } catch {} }
-    };
-    const getKey = () => OPENROUTER_API_KEY || store.get();
-
-    /* ====================== RENDERING ====================== */
-    function escapeHtml(s) {
-      return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    // Initialize Key Bar Visibility
+    if (!apiKey) {
+      keyBar.classList.remove('hidden');
     }
 
-    // Tiny, safe markdown: **bold**, "- " / "* " bullets, line breaks
-    function format(text) {
-      const lines = escapeHtml(text).split("\n");
-      let html = "", inList = false;
-      for (const raw of lines) {
-        const line = raw.trim();
-        const li = line.match(/^[-*•]\s+(.*)$/);
-        if (li) {
-          if (!inList) { html += '<ul class="my-2 list-disc space-y-1 pl-5">'; inList = true; }
-          html += `<li>${li[1]}</li>`;
-        } else {
-          if (inList) { html += "</ul>"; inList = false; }
-          if (line) html += `<p class="my-1.5">${line}</p>`;
-        }
-      }
-      if (inList) html += "</ul>";
-      return html.replace(/\*\*(.+?)\*\*/g, '<strong class="font-semibold">$1</strong>');
-    }
-
-    function addMessage(role, text, opts = {}) {
-      const isUser = role === "user";
-      const wrap = document.createElement("div");
-      wrap.className = "flex " + (isUser ? "justify-end" : "justify-start");
-
-      const bubble = document.createElement("div");
-      bubble.className = "bubble max-w-[88%] rounded-2xl px-4 py-3 text-[15px] leading-relaxed shadow-sm sm:max-w-[80%] " +
-        (isUser
-          ? "rounded-br-sm bg-indigo-kutch text-white"
-          : "bubble-doctor rounded-bl-sm bg-white text-slate-800 " + (opts.error ? "border border-red-200 bg-red-50" : ""));
-      bubble.innerHTML = isUser ? `<p>${escapeHtml(text).replace(/\n/g, "<br>")}</p>` : format(text);
-
-      wrap.appendChild(bubble);
-      chat.appendChild(wrap);
-      chat.scrollTop = chat.scrollHeight;
-      return wrap;
-    }
-
-    function showTyping() {
-      const wrap = document.createElement("div");
-      wrap.id = "typing";
-      wrap.className = "flex justify-start";
-      wrap.innerHTML = `
-        <div class="bubble-doctor flex items-center gap-2 rounded-2xl rounded-bl-sm bg-white px-4 py-3 shadow-sm" role="status">
-          <span class="text-sm text-slate-500">ડૉક્ટર સાહેબ લખી રહ્યા છે</span>
-          <span class="flex gap-1" aria-hidden="true">
-            <span class="dot h-1.5 w-1.5 rounded-full bg-indigo-kutch"></span>
-            <span class="dot h-1.5 w-1.5 rounded-full bg-indigo-kutch"></span>
-            <span class="dot h-1.5 w-1.5 rounded-full bg-indigo-kutch"></span>
-          </span>
-        </div>`;
-      chat.appendChild(wrap);
-      chat.scrollTop = chat.scrollHeight;
-    }
-    const hideTyping = () => $("typing")?.remove();
-
-    function setBusy(v) {
-      busy = v;
-      sendBtn.disabled = v;
-      input.disabled = v;
-      const m = $("mic"); if (m) m.disabled = v;
-      if (!v) input.focus();
-    }
-
-    /* ====================== OPENROUTER ====================== */
-    async function askDoctor() {
-      const key = getKey();
-      if (!key) throw { code: "nokey" };
-
-      const messages = [{ role: "system", content: SYSTEM_PROMPT }, ...history.slice(-10)];
-      let lastErr;
-
-      for (const model of MODELS) {
-        try {
-          const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-            method: "POST",
-            headers: {
-              "Authorization": `Bearer ${key}`,
-              "Content-Type": "application/json",
-              "HTTP-Referer": location.href.startsWith("http") ? location.origin : "https://localhost",
-              "X-Title": "Madhapar Doctor Chatbot"
-            },
-            body: JSON.stringify({ model, messages, temperature: 0.4, max_tokens: 700 })
-          });
-
-          if (res.status === 401) throw { code: "auth" };
-          if (!res.ok) { lastErr = { code: "http", status: res.status }; continue; } // try next model
-
-          const data = await res.json();
-          const reply = data?.choices?.[0]?.message?.content?.trim();
-          if (reply) return reply;
-          lastErr = { code: "empty" };
-        } catch (e) {
-          if (e?.code === "auth") throw e;
-          lastErr = e?.code ? e : { code: "network" };
-        }
-      }
-      throw lastErr || { code: "unknown" };
-    }
-
-    function errorText(e) {
-      switch (e?.code) {
-        case "nokey":   return "પહેલા ઉપર OpenRouter API કી દાખલ કરો.";
-        case "auth":    return "API કી ખોટી છે અથવા માન્ય નથી. કૃપા કરીને ફરી તપાસો.";
-        case "network": return "ઇન્ટરનેટ કનેક્શનમાં સમસ્યા છે. કનેક્શન તપાસીને ફરી પ્રયત્ન કરો.";
-        case "http":    return e.status === 429
-                          ? "અત્યારે ઘણા લોકો વાપરી રહ્યા છે (મફત મોડેલની મર્યાદા). થોડી વાર પછી ફરી પ્રયત્ન કરો."
-                          : `સર્વરમાં સમસ્યા આવી (કોડ ${e.status}). થોડી વાર પછી ફરી પ્રયત્ન કરો.`;
-        default:        return "જવાબ મળી શક્યો નહીં. ફરી પ્રયત્ન કરો.";
-      }
-    }
-
-    /* ====================== VOICE (બોલવું અને સાંભળવું) ====================== */
-    const micBtn = $("mic"), voiceStatus = $("voiceStatus");
-    const speakToggle = $("speakToggle"), autoSendToggle = $("autoSendToggle"), stopSpeakBtn = $("stopSpeak");
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    const synth = window.speechSynthesis;
-
-    let recog = null, listening = false, gujVoice = null, warnedNoVoice = false;
-
-    function setStatus(msg, isError = false) {
-      voiceStatus.textContent = msg || "";
-      voiceStatus.className = "mb-2 min-h-[1.25rem] text-sm font-medium " + (isError ? "text-madder" : "text-indigo-kutch");
-    }
-
-    /* ---------- Text to speech ---------- */
-    function pickVoice() {
-      const voices = synth ? synth.getVoices() : [];
-      gujVoice = voices.find((v) => /^gu([-_]|$)/i.test(v.lang)) || null;
-    }
-    if (synth) { pickVoice(); synth.onvoiceschanged = pickVoice; }
-
-    function cleanForSpeech(text) {
-      return text
-        .replace(/\*\*/g, "")
-        .replace(/^[\s]*[-*•]\s+/gm, "")
-        .replace(/\p{Extended_Pictographic}/gu, "")
-        .replace(/\uFE0F/g, "")
-        .replace(/\s+/g, " ")
-        .trim();
-    }
-
-    // Chrome stops long utterances after ~15s, so speak sentence by sentence
-    function toChunks(text) {
-      const parts = text.match(/[^।.!?]+[।.!?]?/g) || [text];
-      const chunks = [];
-      for (const p of parts) {
-        let s = p.trim();
-        while (s.length > 180) {
-          let cut = s.lastIndexOf(" ", 180);
-          if (cut < 60) cut = 180;
-          chunks.push(s.slice(0, cut).trim());
-          s = s.slice(cut).trim();
-        }
-        if (s) chunks.push(s);
-      }
-      return chunks;
-    }
-
-    function stopSpeaking() {
-      if (synth) synth.cancel();
-      stopSpeakBtn.classList.add("hidden");
-    }
-
-    function speak(text) {
-      if (!synth || !speakToggle.checked) return;
-      stopSpeaking();
-      pickVoice();
-
-      if (!gujVoice && !warnedNoVoice) {
-        warnedNoVoice = true;
-        setStatus("આ ઉપકરણમાં ગુજરાતી અવાજ મળ્યો નથી. Android Chrome પર સારું ચાલે છે, અથવા ફોન/કમ્પ્યુટરની Text-to-speech સેટિંગમાં ગુજરાતી અવાજ ઉમેરો.", true);
-      }
-
-      const chunks = toChunks(cleanForSpeech(text));
-      if (!chunks.length) return;
-
-      chunks.forEach((chunk, i) => {
-        const u = new SpeechSynthesisUtterance(chunk);
-        u.lang = "gu-IN";
-        if (gujVoice) u.voice = gujVoice;
-        u.rate = 0.95;
-        u.pitch = 1;
-        if (i === 0) u.onstart = () => stopSpeakBtn.classList.remove("hidden");
-        if (i === chunks.length - 1) {
-          u.onend = () => stopSpeakBtn.classList.add("hidden");
-          u.onerror = () => stopSpeakBtn.classList.add("hidden");
-        }
-        synth.speak(u);
-      });
-    }
-
-    stopSpeakBtn.addEventListener("click", stopSpeaking);
-    speakToggle.addEventListener("change", () => { if (!speakToggle.checked) stopSpeaking(); });
-    window.addEventListener("beforeunload", () => synth && synth.cancel());
-
-    /* ---------- Speech to text ---------- */
-    function startListening() {
-      if (!SR || busy) return;
-      stopSpeaking();
-
-      recog = new SR();
-      recog.lang = "gu-IN";
-      recog.interimResults = true;
-      recog.continuous = false;
-      recog.maxAlternatives = 1;
-
-      const base = input.value.trim();
-      let finalText = "";
-      let hadError = false;
-
-      recog.onstart = () => {
-        listening = true;
-        micBtn.classList.add("mic-live");
-        micBtn.setAttribute("aria-pressed", "true");
-        setStatus("🎙️ સાંભળી રહ્યો છું… તમારા લક્ષણો બોલો");
-      };
-
-      recog.onresult = (e) => {
-        let interim = "";
-        for (let i = e.resultIndex; i < e.results.length; i++) {
-          const t = e.results[i][0].transcript;
-          if (e.results[i].isFinal) finalText += t; else interim += t;
-        }
-        input.value = (base ? base + " " : "") + finalText + interim;
-        autoGrow();
-      };
-
-      recog.onerror = (e) => {
-        hadError = true;
-        const msgs = {
-          "not-allowed": "માઇક્રોફોનની મંજૂરી આપો (બ્રાઉઝરના એડ્રેસ બારમાં તાળાના નિશાન પરથી).",
-          "service-not-allowed": "માઇક્રોફોનની મંજૂરી આપો (બ્રાઉઝરના એડ્રેસ બારમાં તાળાના નિશાન પરથી).",
-          "no-speech": "કંઈ સંભળાયું નહીં. માઇક દબાવીને ફરી બોલો.",
-          "audio-capture": "માઇક્રોફોન મળ્યો નથી. તેને જોડીને ફરી પ્રયત્ન કરો.",
-          "network": "બોલવાની ઓળખ માટે ઇન્ટરનેટ જોઈએ. કનેક્શન તપાસો.",
-          "language-not-supported": "આ બ્રાઉઝર ગુજરાતી બોલવાની ઓળખ સપોર્ટ કરતું નથી. Chrome કે Edge વાપરો."
-        };
-        setStatus(msgs[e.error] || "બોલવાની ઓળખમાં સમસ્યા આવી. ફરી પ્રયત્ન કરો.", true);
-      };
-
-      recog.onend = () => {
-        listening = false;
-        micBtn.classList.remove("mic-live");
-        micBtn.setAttribute("aria-pressed", "false");
-        const text = input.value.trim();
-        if (!hadError) setStatus(text ? "" : "કંઈ સંભળાયું નહીં. માઇક દબાવીને ફરી બોલો.", !text);
-        if (!hadError && text && autoSendToggle.checked) handleSend(text);
-      };
-
-      try { recog.start(); } catch (_) { /* already started */ }
-    }
-
-    micBtn.addEventListener("click", () => {
-      if (listening && recog) { recog.stop(); } else { startListening(); }
-    });
-
-    if (!SR) {
-      micBtn.classList.add("hidden");
-      setStatus("આ બ્રાઉઝરમાં બોલીને લખવાની સુવિધા નથી. Chrome કે Edge વાપરો (Android/કમ્પ્યુટર). જવાબ સાંભળવાની સુવિધા ચાલશે.", true);
-    }
-
-    /* ====================== EVENTS ====================== */
-    async function handleSend(text) {
-      text = text.trim();
-      if (!text || busy) return;
-
-      if (!getKey()) {
-        keyBar.classList.remove("hidden");
-        keyInput.focus();
-        return;
-      }
-
-      stopSpeaking();
-      setStatus("");
-      addMessage("user", text);
-      history.push({ role: "user", content: text });
-      input.value = "";
-      autoGrow();
-      setBusy(true);
-      showTyping();
-
-      try {
-        let reply = await askDoctor();
-        // Guarantee the strict disclaimer is always present at the end
-        if (!reply.includes(DISCLAIMER_MARKER)) reply += "\n\n" + DISCLAIMER;
-        hideTyping();
-        addMessage("doctor", reply);
-        history.push({ role: "assistant", content: reply });
-        speak(reply);
-      } catch (e) {
-        hideTyping();
-        if (e?.code === "auth" || e?.code === "nokey") keyBar.classList.remove("hidden");
-        addMessage("doctor", errorText(e), { error: true });
-        history.pop(); // let the user retry the same message
-      } finally {
-        setBusy(false);
-      }
-    }
-
-    form.addEventListener("submit", (e) => { e.preventDefault(); handleSend(input.value); });
-
-    input.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
-        e.preventDefault();
-        form.requestSubmit();
+    keySave.addEventListener('click', () => {
+      const val = keyInput.value.trim();
+      if (val) {
+        apiKey = val;
+        localStorage.setItem('openrouter_api_key', val);
+        keyBar.classList.add('hidden');
+        appendMessage('system', 'API કી સફળતાપૂર્વક સાચવવામાં આવી છે.');
       }
     });
 
-    function autoGrow() {
-      input.style.height = "auto";
-      input.style.height = Math.min(input.scrollHeight, 128) + "px";
-    }
-    input.addEventListener("input", autoGrow);
+    // Render Quick Chips
+    QUICK_CHIPS.forEach(symptom => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'shrink-0 rounded-full border border-slate-300 bg-white px-4 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-indigo-kutch hover:text-white';
+btn.textContent = symptom;
+btn.addEventListener('click', () => {
+input.value = symptom;
+form.requestSubmit();
+});
+chipsContainer.appendChild(btn);
+});
+// Auto-resize textarea
+input.addEventListener('input', () => {
+input.style.height = 'auto';
+input.style.height = input.scrollHeight + 'px';
+});
+// Text to Speech
+function speakText(text) {
+if (!speakToggle.checked || !synthesis) return;
+stopSpeaking();
+// Clean up markdown text for better speech flow
+const cleanText = text.replace(/[*#`_-]/g, '');
+currentUtterance = new SpeechSynthesisUtterance(cleanText);
+currentUtterance.lang = 'gu-IN';
+currentUtterance.onstart = () => stopSpeakBtn.classList.remove('hidden');
+currentUtterance.onend = () => stopSpeakBtn.classList.add('hidden');
+currentUtterance.onerror = () => stopSpeakBtn.classList.add('hidden');
+synthesis.speak(currentUtterance);
+}
+function stopSpeaking() {
+if (synthesis && synthesis.speaking) {
+synthesis.cancel();
+}
+stopSpeakBtn.classList.add('hidden');
+}
+stopSpeakBtn.addEventListener('click', stopSpeaking);
+// Speech to Text (Voice Input)
+if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+recognition = new SpeechRecognition();
+recognition.lang = 'gu-IN';
+recognition.continuous = false;
+recognition.interimResults = false;
+recognition.onstart = () => {
+micBtn.classList.add('mic-live');
+micBtn.setAttribute('aria-pressed', 'true');
+voiceStatus.textContent = '🎙️ હું સાંભળી રહ્યો છું, બોલો...';
+};
+recognition.onresult = (event) => {
+const text = event.results[0][0].transcript;
+input.value = text;
+input.dispatchEvent(new Event('input'));
+voiceStatus.textContent = '';
+if (autoSendToggle.checked) {
+form.requestSubmit();
+}
+};
+recognition.onerror = () => {
+voiceStatus.textContent = '❌ અવાજ ઓળખવામાં ભૂલ થઈ. ફરી પ્રયત્ન કરો.';
+cleanupMic();
+};
+recognition.onend = () => {
+cleanupMic();
+};
+function cleanupMic() {
+micBtn.classList.remove('mic-live');
+micBtn.setAttribute('aria-pressed', 'false');
+if (voiceStatus.textContent.startsWith('🎙️')) voiceStatus.textContent = '';
+}
+micBtn.addEventListener('click', () => {
+if (micBtn.classList.contains('mic-live')) {
+recognition.stop();
+} else {
+stopSpeaking();
+recognition.start();
+}
+});
+} else {
+micBtn.disabled = true;
+micBtn.title = 'તમારા બ્રાઉઝરમાં વોઇસ ટાઇપિંગ સપોર્ટ નથી';
+}
+// Append Message to UI
+function appendMessage(sender, text) {
+const wrapper = document.createElement('div');
+wrapper.className = flex ${sender === 'user' ? 'justify-end' : 'justify-start'};
+const bubble = document.createElement('div');
+bubble.className = bubble max-w-[85%] rounded-2xl px-4 py-2.5 text-base shadow-sm leading-relaxed ${ sender === 'user'  ? 'bg-indigo-kutch text-white rounded-br-none'  : sender === 'system' ? 'bg-amber-100 text-amber-900 border border-amber-300 text-center mx-auto' : 'bg-white text-slate-800 rounded-bl-none bubble-doctor' };
+bubble.innerText = text;
+wrapper.appendChild(bubble);
+chat.appendChild(wrapper);
+chat.scrollTop = chat.scrollHeight;
+return bubble;
+}
+// Append Typing Indicator
+function appendTypingIndicator() {
+const wrapper = document.createElement('div');
+wrapper.className = 'flex justify-start id-loader';
+wrapper.innerHTML = <div class="bg-white rounded-2xl px-5 py-4 shadow-sm flex gap-1 items-center rounded-bl-none bubble-doctor"> <span class="dot h-2 w-2 rounded-full bg-indigo-kutch inline-block"></span> <span class="dot h-2 w-2 rounded-full bg-indigo-kutch inline-block"></span> <span class="dot h-2 w-2 rounded-full bg-indigo-kutch inline-block"></span> </div>;
+chat.appendChild(wrapper);
+chat.scrollTop = chat.scrollHeight;
+return wrapper;
+}
+// Form Submit (Send Message to OpenRouter API)
+form.addEventListener('submit', async (e) => {
+e.preventDefault();
+const text = input.value.trim();
+if (!text) return;
+if (!apiKey) {
+keyBar.classList.remove('hidden');
+keyInput.focus();
+alert('કૃપા કરીને પહેલા OpenRouter API કી દાખલ કરો.');
+return;
+}
+appendMessage('user', text);
+input.value = '';
+input.style.height = 'auto';
+stopSpeaking();
+const loader = appendTypingIndicator();
+try {
+// Using the ultra-fast and reliable free model: google/gemini-2.5-flash:free
+const response = await fetch('openrouter.ai', {
+method: 'POST',
+headers: {
+'Content-Type': 'application/json',
+'Authorization': Bearer ${apiKey},
+'HTTP-Referer': window.location.href,
+'X-Title': 'AI Rural Doctor Saheb'
+},
+body: JSON.stringify({
+model: 'google/gemini-2.5-flash:free',
+messages: [
+{ role: 'system', content: SYSTEM_PROMPT },
+{ role: 'user', content: text }
+]
+})
+});
+loader.remove();
+if (!response.ok) {
+throw new Error('API Request Failed');
+}
+const data = await response.json();
+const aiResponse = data.choices[0].message.content;
+appendMessage('doctor', aiResponse);
+speakText(aiResponse);
+} catch (err) {
+if (loader) loader.remove();
+appendMessage('doctor', 'જવાબ મળી શક્યો નહીં. કૃપા કરીને તમારી API કી તપાસો અને ફરી પ્રયત્ન કરો.');
+}
+});
+// Initial Welcome Message
+appendMessage('doctor', 'નમસ્તે! હું માધાપર વિજ્ઞાન મેળાનો AI મેડિકલ આસિસ્ન્ટ છું. તમને અથવા પરિવારમાં કોઈને સ્વાસ્થ્ય અંગે શું તકલીફ છે? કૃપા કરીને વિગતે જણાવો.');
 
-    keySave.addEventListener("click", () => {
-      const v = keyInput.value.trim();
-      if (!v) return;
-      store.set(v);
-      keyInput.value = "";
-      keyBar.classList.add("hidden");
-      input.focus();
-    });
 
-    /* ====================== INIT ====================== */
-    $("chips").innerHTML = QUICK.map((q) =>
-      `<button type="button" class="chip shrink-0 whitespace-nowrap rounded-full border border-indigo-kutch/30 bg-lime-wash px-3.5 py-1.5 text-sm text-indigo-kutch hover:bg-indigo-kutch hover:text-white focus:outline-none focus:ring-2 focus:ring-indigo-kutch">${q}</button>`
-    ).join("");
-    $("chips").addEventListener("click", (e) => {
-      const b = e.target.closest(".chip");
-      if (b) { input.value = b.textContent; autoGrow(); input.focus(); }
-    });
 
-    if (!getKey()) keyBar.classList.remove("hidden");
+---
 
-    addMessage("doctor",
-      "નમસ્તે! હું માધાપરનો તમારો ડૉક્ટર સાહેબ. 🙏\n" +
-      "તમારી તકલીફ જણાવો — ક્યારથી છે, ઉંમર કેટલી છે અને તાવ છે કે નહીં, એ પણ લખજો. હું ઘરેલુ ઉપાયથી પ્રાથમિક સલાહ આપીશ.\n\n" +
-      DISCLAIMER
-    );
-  </script>
-</body>
-</html>
+
